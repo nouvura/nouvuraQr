@@ -1,0 +1,18 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    match /portfolios/{portfolioId}/{subfolder}/{fileName} {
+      // Public read so portfolio pages and QR-scanning visitors can load images
+      allow read: if true;
+
+      // Uploads limited to images under 8MB, into the logo or gallery subfolders
+      allow write: if subfolder in ['logo', 'gallery']
+                   && request.resource.size < 8 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+
+      allow delete: if false;
+    }
+  }
+}
