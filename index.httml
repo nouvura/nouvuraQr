@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NOUVURA QR — Dynamic Portfolio &amp; QR Studio</title>
+<meta name="description" content="Turn your links, contact and gallery into a cinematic portfolio page and a scannable QR code." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+<!-- QR generation (client-side, PNG canvas + SVG string) -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<!-- Icons -->
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+
+<style>
+  :root{
+    --void:#050505;
+    --void-soft:#0b0b0d;
+    --void-elevated:#121214;
+    --void-line:#221f1f;
+    --oxblood:#6E0F20;
+    --oxblood-bright:#B4152F;
+    --oxblood-deep:#3D0812;
+    --gilt:#C9A24B;
+    --gilt-bright:#E8C874;
+    --gilt-dim:#8A7038;
+    --bone:#EDEAE3;
+    --bone-dim:#9C978E;
+    --bone-faint:#5C5852;
+    --font-display:'Orbitron', sans-serif;
+    --font-body:'Rajdhani', sans-serif;
+    --font-mono:'Space Mono', monospace;
+  }
+
+  *{ box-sizing:border-box; }
+
+  html,body{
+    margin:0; padding:0;
+    background:var(--void);
+    color:var(--bone);
+    font-family:var(--font-body);
+    scroll-behavior:smooth;
+  }
+
+  body{ position:relative; min-height:100vh; }
+
+  ::selection{ background:rgba(201,162,75,0.35); color:var(--bone); }
+
+  a{ color:inherit; text-decoration:none; }
+
+  button, input, textarea, select{ font-family:inherit; }
+
+  .grain-overlay{
+    pointer-events:none;
+    position:fixed; inset:0; z-index:60;
+    opacity:0.05; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size:220px 220px;
+  }
+
+  a:focus-visible, button:focus-visible, input:focus-visible,
+  textarea:focus-visible, [tabindex]:focus-visible{
+    outline:2px solid var(--gilt); outline-offset:2px;
+  }
+
+  .container{ max-width:1120px; margin:0 auto; padding:0 24px; }
+  .container-narrow{ max-width:680px; margin:0 auto; padding:0 24px; }
+
+  .eyebrow{
+    letter-spacing:.35em; text-transform:uppercase;
+    font-size:.68rem; color:var(--gilt); margin:0 0 .75rem;
+  }
+
+  .hairline{
+    height:1px; margin:3rem 0;
+    background:linear-gradient(90deg, transparent, rgba(201,162,75,.5), transparent);
+  }
+
+  h1,h2,h3{ font-family:var(--font-display); margin:0; font-weight:700; letter-spacing:.01em; }
+  p{ margin:0; }
+
+  .aurora{
+    position:absolute; inset:0; pointer-events:none; z-index:0;
+    background:
+      radial-gradient(60% 60% at 20% 15%, rgba(180,21,47,.35) 0%, rgba(180,21,47,0) 70%),
+      radial-gradient(50% 50% at 82% 25%, rgba(201,162,75,.22) 0%, rgba(201,162,75,0) 70%);
+  }
+
+  /* ---------- buttons / inputs ---------- */
+  .btn{
+    display:inline-flex; align-items:center; gap:.5rem;
+    border-radius:8px; padding:.85rem 1.5rem;
+    font-size:.8rem; font-weight:600; text-transform:uppercase; letter-spacing:.15em;
+    cursor:pointer; border:1px solid transparent; transition:all .2s ease;
+  }
+  .btn-primary{ background:var(--gilt); color:var(--void); }
+  .btn-primary:hover{ background:var(--gilt-bright); }
+  .btn-primary:disabled{ opacity:.55; cursor:not-allowed; }
+  .btn-outline{ border-color:var(--gilt-dim); color:var(--gilt); background:transparent; }
+  .btn-outline:hover{ border-color:var(--gilt); background:rgba(201,162,75,.08); }
+  .btn-ghost{ color:var(--bone-faint); background:transparent; border:none; font-size:.72rem; text-transform:uppercase; letter-spacing:.18em; }
+  .btn-ghost:hover{ color:var(--gilt); }
+  .btn-block{ width:100%; justify-content:center; }
+
+  .field{ margin-bottom:2rem; }
+  .field label{ display:block; font-size:.7rem; text-transform:uppercase; letter-spacing:.18em; color:var(--bone-dim); margin-bottom:.6rem; }
+  .input, .textarea{
+    width:100%; background:rgba(18,18,20,.6); border:1px solid var(--void-line);
+    border-radius:10px; padding:.85rem 1rem; color:var(--bone); font-size:.92rem;
+  }
+  .input::placeholder, .textarea::placeholder{ color:var(--bone-faint); }
+  .textarea{ resize:none; }
+
+  .category-row{ display:flex; gap:.75rem; flex-wrap:wrap; }
+  .category-pill{
+    border:1px solid var(--void-line); border-radius:8px; padding:.55rem 1.1rem;
+    font-size:.72rem; text-transform:uppercase; letter-spacing:.15em; color:var(--bone-dim);
+    background:transparent; cursor:pointer; transition:all .2s ease;
+  }
+  .category-pill.active{ border-color:var(--gilt); color:var(--gilt); background:rgba(201,162,75,.1); }
+  .category-pill:hover{ border-color:var(--gilt-dim); }
+
+  .link-row{
+    display:flex; align-items:center; gap:.6rem;
+    border:1px solid var(--void-line); background:rgba(18,18,20,.5);
+    border-radius:10px; padding:.55rem .8rem; margin-bottom:.7rem;
+  }
+  .link-row .icon-badge{
+    width:34px; height:34px; flex-shrink:0; border-radius:6px;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--void-soft); color:var(--gilt);
+  }
+  .link-row input[type=text]{
+    background:transparent; border:none; color:var(--bone); font-size:.88rem; flex:1; min-width:0;
+  }
+  .link-row input[type=text]:focus{ outline:none; }
+  .link-row .platform-input{
+    width:110px; flex:0 0 auto; border-left:1px solid var(--void-line); padding-left:.6rem;
+    color:var(--bone-dim); font-size:.75rem;
+  }
+  .link-row button{ background:none; border:none; color:var(--bone-faint); cursor:pointer; flex-shrink:0; display:flex; }
+  .link-row button:hover{ color:var(--oxblood-bright); }
+
+  .phone-row{ display:flex; align-items:center; gap:.6rem; margin-bottom:.6rem; }
+  .phone-row input{ flex:1; }
+  .phone-row button{ background:none; border:none; color:var(--bone-faint); cursor:pointer; display:flex; }
+  .phone-row button:hover{ color:var(--oxblood-bright); }
+
+  .add-link{
+    background:none; border:none; color:var(--gilt); font-size:.72rem;
+    text-transform:uppercase; letter-spacing:.15em; display:inline-flex; align-items:center; gap:.4rem;
+    cursor:pointer; padding:0;
+  }
+  .add-link:hover{ color:var(--gilt-bright); }
+
+  .upload-grid{ display:grid; grid-template-columns:1fr 1fr; gap:2rem; margin-bottom:2rem; }
+  @media (max-width:560px){ .upload-grid{ grid-template-columns:1fr; } }
+
+  .logo-box{
+    width:112px; height:112px; border-radius:14px; border:1px dashed var(--gilt-dim);
+    background:rgba(18,18,20,.6); display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:.4rem; color:var(--bone-dim); cursor:pointer; overflow:hidden;
+  }
+  .logo-box:hover{ border-color:var(--gilt); color:var(--gilt); }
+  .logo-box img{ width:100%; height:100%; object-fit:cover; }
+  .logo-box span{ font-size:.6rem; text-transform:uppercase; letter-spacing:.15em; }
+
+  .gallery-wrap{ display:flex; flex-wrap:wrap; gap:.75rem; }
+  .gallery-thumb{ position:relative; width:80px; height:80px; border-radius:8px; overflow:hidden; border:1px solid var(--void-line); }
+  .gallery-thumb img{ width:100%; height:100%; object-fit:cover; }
+  .gallery-thumb .remove-thumb{
+    position:absolute; top:4px; right:4px; background:rgba(0,0,0,.7); border:none;
+    border-radius:999px; padding:2px; color:var(--bone); cursor:pointer; display:flex;
+  }
+  .gallery-add{
+    width:80px; height:80px; border-radius:8px; border:1px dashed var(--gilt-dim);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.25rem;
+    color:var(--bone-dim); cursor:pointer;
+  }
+  .gallery-add:hover{ border-color:var(--gilt); color:var(--gilt); }
+  .gallery-add span{ font-size:.55rem; text-transform:uppercase; letter-spacing:.1em; }
+
+  .error-box{
+    border:1px solid rgba(180,21,47,.4); background:rgba(61,8,18,.3);
+    border-radius:8px; padding:.85rem 1rem; font-size:.85rem; color:var(--oxblood-bright);
+    margin-bottom:1.5rem;
+  }
+
+  /* ---------- QR ---------- */
+  .qr-frame{
+    background:var(--bone); border:1px solid var(--gilt-dim); border-radius:18px;
+    padding:1rem; display:inline-block; position:relative; overflow:hidden;
+    box-shadow:0 0 0 1px rgba(201,162,75,.35), 0 0 30px -8px rgba(201,162,75,.55);
+  }
+  .qr-frame canvas{ display:block; width:210px; height:210px; }
+  .qr-frame::after{
+    content:''; position:absolute; left:0; right:0; top:0; height:40%;
+    background:linear-gradient(180deg, transparent, rgba(201,162,75,.25), transparent);
+  }
+
+  /* ---------- landing hero matrix ---------- */
+  .matrix-wrap{ position:relative; max-width:420px; margin:0 auto; aspect-ratio:1/1; }
+  .matrix-grid{
+    display:grid; gap:2px; width:100%; height:100%;
+    border:1px solid rgba(138,112,56,.4); border-radius:16px;
+    background:rgba(18,18,20,.4); padding:16px;
+    box-shadow:0 0 0 1px rgba(180,21,47,.4), 0 0 40px -10px rgba(180,21,47,.6);
+  }
+  .matrix-cell{ background:var(--bone-faint); opacity:.06; transition:opacity .5s ease; }
+  .matrix-cell.filled{ background:var(--gilt); opacity:1; }
+  .matrix-scan{
+    position:absolute; inset:0; overflow:hidden; border-radius:16px; pointer-events:none;
+  }
+  .matrix-scan::before{
+    content:''; position:absolute; left:0; right:0; height:33%;
+    background:linear-gradient(180deg, transparent, rgba(180,21,47,.25), transparent);
+    animation:scanline 3.2s linear infinite;
+  }
+  @keyframes scanline{ 0%{ transform:translateY(-100%);} 100%{ transform:translateY(300%);} }
+
+  /* ---------- rating stars ---------- */
+  .stars{ display:flex; gap:.35rem; justify-content:center; }
+  .star-btn{ background:none; border:none; cursor:pointer; padding:0; display:flex; }
+  .star-btn:disabled{ cursor:not-allowed; opacity:.4; }
+
+  /* ---------- portfolio page ---------- */
+  .hero-badge{
+    width:96px; height:96px; border-radius:18px; margin:0 auto 1.5rem;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-display); font-size:1.4rem; overflow:hidden;
+  }
+  .hero-badge img{ width:100%; height:100%; object-fit:cover; }
+
+  .contact-btn{
+    display:inline-flex; align-items:center; gap:.5rem; border-radius:8px;
+    padding:.7rem 1.4rem; font-size:.9rem; border:1px solid; margin-top:1.5rem;
+  }
+  .contact-btn:hover{ background:rgba(255,255,255,.05); }
+
+  .links-grid{ display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
+  @media (max-width:560px){ .links-grid{ grid-template-columns:1fr; } }
+  .link-card{
+    display:flex; align-items:center; gap:.75rem; border:1px solid var(--void-line);
+    background:rgba(18,18,20,.5); border-radius:10px; padding:.85rem 1rem; font-size:.88rem;
+    transition:all .2s ease;
+  }
+  .link-card:hover{ border-color:var(--gilt-dim); background:var(--void-elevated); }
+
+  .gallery-view{ display:grid; grid-template-columns:repeat(3,1fr); gap:.75rem; }
+  @media (max-width:560px){ .gallery-view{ grid-template-columns:repeat(2,1fr); } }
+  .gallery-view img{ width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:8px; }
+
+  .spin{ animation:spin 1s linear infinite; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  .center-screen{ min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:1rem; padding:24px; }
+
+  footer.site-footer{
+    border-top:1px solid var(--void-line); text-align:center; padding:2rem 0;
+    font-size:.68rem; text-transform:uppercase; letter-spacing:.18em; color:var(--bone-faint);
+  }
+
+  .fade-in{ animation:fadeIn .5s ease both; }
+  @keyframes fadeIn{ from{ opacity:0; transform:translateY(10px);} to{ opacity:1; transform:translateY(0);} }
+
+  .features{ display:grid; grid-template-columns:repeat(3,1fr); gap:1.5rem; margin-top:3rem; }
+  @media (max-width:760px){ .features{ grid-template-columns:1fr; } }
+  .feature-item svg{ color:var(--oxblood-bright); margin-bottom:.6rem; }
+  .feature-item p.title{ font-size:.88rem; font-weight:600; color:var(--bone); margin-bottom:.25rem; }
+  .feature-item p.body{ font-size:.78rem; line-height:1.5; color:var(--bone-dim); }
+
+  .hero-grid{ display:grid; grid-template-columns:1fr 1fr; gap:3.5rem; align-items:center; padding:7rem 0 6rem; }
+  @media (max-width:900px){ .hero-grid{ grid-template-columns:1fr; padding:5rem 0 3rem; } }
+  .hero-title{ font-size:3rem; line-height:1.05; }
+  @media (max-width:560px){ .hero-title{ font-size:2.1rem; } }
+  .hero-title .accent{ color:var(--gilt); }
+  .hero-sub{ max-width:420px; margin-top:1.4rem; font-size:1.05rem; color:var(--bone-dim); line-height:1.6; }
+</style>
+</head>
+<body>
+  <div class="grain-overlay" aria-hidden="true"></div>
+  <div id="app"></div>
+
+<script type="module">
+/* =========================================================================
+   NOUVURA QR — single-file build
+   Firebase (Firestore + Storage) is the only backend. No mock data.
+   ========================================================================= */
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
+import {
+  getFirestore, doc, setDoc, getDoc, collection, addDoc,
+  runTransaction, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+import {
+  getStorage, ref, uploadBytes, getDownloadURL
+} from "https://www.gstatic.com/firebasejs/10.12.4/firebase-storage.js";
+import { getAnalytics, isSupported } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-analytics.js";
+
+// ================= FIREBASE CONFIG (exact values provided) =================
+const firebaseConfig = {
+  apiKey: "AIzaSyDQoZxLaAqLb6EG_Ossvp_gRQx3FiEYDjo",
+  authDomain: "nouvura.firebaseapp.com",
+  projectId: "nouvura",
+  storageBucket: "nouvura.firebasestorage.app",
+  messagingSenderId: "792152124967",
+  appId: "1:792152124967:web:1d1d3aa4950a0f34cda802",
+  measurementId: "G-C9EGVHFRKG"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const db = getFirestore(fbApp);
+const storage = getStorage(fbApp);
+isSupported().then((ok) => { if (ok) getAnalytics(fbApp); }).catch(() => {});
+
+// ================= helpers =================
+function generateId() {
+  return Array.from({ length: 8 }, () => Math.floor(Math.random() * 36).toString(36)).join("");
+}
+
+const PLATFORM_PATTERNS = [
+  { key: "Instagram", test: /instagram\.com/i },
+  { key: "Facebook", test: /(facebook\.com|fb\.me)/i },
+  { key: "TikTok", test: /tiktok\.com/i },
+  { key: "LinkedIn", test: /linkedin\.com/i },
+  { key: "YouTube", test: /(youtube\.com|youtu\.be)/i },
+  { key: "Twitter", test: /(twitter\.com|x\.com)/i },
+  { key: "WhatsApp", test: /(wa\.me|whatsapp\.com)/i },
+  { key: "Telegram", test: /(t\.me|telegram\.me)/i },
+  { key: "Behance", test: /behance\.net/i },
+  { key: "Dribbble", test: /dribbble\.com/i },
+  { key: "GitHub", test: /github\.com/i },
+  { key: "Pinterest", test: /pinterest\./i },
+  { key: "Snapchat", test: /snapchat\.com/i },
+];
+
+function detectPlatform(rawUrl = "") {
+  const url = (rawUrl || "").trim();
+  if (!url) return "Website";
+  for (const { key, test } of PLATFORM_PATTERNS) if (test.test(url)) return key;
+  return "Website";
+}
+
+function normalizeUrl(rawUrl = "") {
+  const url = (rawUrl || "").trim();
+  if (!url) return url;
+  if (/^(https?:|mailto:|tel:)/i.test(url)) return url;
+  return `https://${url}`;
+}
+
+const PLATFORM_ICON = {
+  Instagram: "instagram", Facebook: "facebook", TikTok: "message-circle",
+  LinkedIn: "linkedin", YouTube: "youtube", Twitter: "twitter",
+  WhatsApp: "message-circle", Telegram: "send", Behance: "palette",
+  Dribbble: "dribbble", GitHub: "github", Pinterest: "map-pin",
+  Snapchat: "message-circle", Website: "globe",
+};
+
+function escapeHtml(str = "") {
+  return String(str)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+const CATEGORY_THEME = {
+  Business:  { accent: "#C9A24B", ring: "#8A7038", tag: "Business Profile" },
+  Creative:  { accent: "#B4152F", ring: "#6E0F20", tag: "Creative Portfolio" },
+  Personal:  { accent: "#EDEAE3", ring: "#5C5852", tag: "Personal Page" },
+};
+
+// ================= app state =================
+const state = {
+  form: {
+    category: "Business",
+    title: "",
+    description: "",
+    phone: "",
+    additionalPhones: [],
+    links: [{ url: "", platform: "" }],
+    logoFile: null,
+    imageFiles: [],
+  },
+  submitting: false,
+  errorMessage: "",
+  createdId: null,
+  portfolioCache: {},   // id -> data
+  viewStatus: {},       // id -> 'loading' | 'ready' | 'notfound' | 'error'
+  ratingLocked: {},     // id -> bool, true once this visitor has rated in this session
+};
+
+// ================= Firestore / Storage service =================
+async function uploadFile(portfolioId, file, subfolder) {
+  const safeName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
+  const fileRef = ref(storage, `portfolios/${portfolioId}/${subfolder}/${safeName}`);
+  const snap = await uploadBytes(fileRef, file);
+  return getDownloadURL(snap.ref);
+}
+
+async function createPortfolio(form) {
+  const id = generateId();
+
+  let logoUrl = null;
+  if (form.logoFile) logoUrl = await uploadFile(id, form.logoFile, "logo");
+
+  const images = [];
+  for (const file of form.imageFiles) {
+    images.push(await uploadFile(id, file, "gallery"));
+  }
+
+  const data = {
+    id,
+    category: form.category || "Business",
+    title: form.title || "Untitled Portfolio",
+    description: form.description || "",
+    phone: form.phone,
+    additionalPhones: form.additionalPhones.filter(Boolean),
+    links: form.links.filter((l) => l.url),
+    logoUrl,
+    images,
+    ratingSum: 0,
+    ratingCount: 0,
+    ratingAverage: 0,
+    createdAt: serverTimestamp(),
+  };
+
+  await setDoc(doc(db, "portfolios", id), data);
+  return id;
+}
+
+async function fetchPortfolio(id) {
+  const snap = await getDoc(doc(db, "portfolios", id));
+  return snap.exists() ? snap.data() : null;
+}
+
+async function submitRating(id, value) {
+  await addDoc(collection(db, "portfolios", id, "ratings"), {
+    value, createdAt: serverTimestamp(),
+  });
+  const portfolioRef = doc(db, "portfolios", id);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(portfolioRef);
+    if (!snap.exists()) return;
+    const d = snap.data();
+    const newSum = (d.ratingSum || 0) + value;
+    const newCount = (d.ratingCount || 0) + 1;
+    tx.update(portfolioRef, { ratingSum: newSum, ratingCount: newCount, ratingAverage: newSum / newCount });
+  });
+}
+
+// ================= router =================
+function parseRoute() {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  if (!hash) return { name: "home" };
+  if (hash === "create") return { name: "create" };
+  let m = hash.match(/^created\/(.+)$/);
+  if (m) return { name: "created", id: m[1] };
+  m = hash.match(/^p\/(.+)$/);
+  if (m) return { name: "portfolio", id: m[1] };
+  return { name: "home" };
+}
+
+function navigate(hash) { window.location.hash = hash; }
+
+// ================= render: layout pieces =================
+function iconSvgPlaceholder(name, cls = "") {
+  return `<i data-lucide="${name}" class="${cls}"></i>`;
+}
+
+function renderFooter() {
+  return `<footer class="site-footer">NOUVURA QR — a creative studio product</footer>`;
+}
+
+// ================= render: home =================
+function renderHome() {
+  return `
+  <main style="position:relative; overflow:hidden;">
+    <div class="aurora"></div>
+    <div class="container" style="position:relative; z-index:1;">
+      <div class="hero-grid">
+        <div>
+          <p class="eyebrow">Nouvura Studio — QR Division</p>
+          <h1 class="hero-title">Your presence,<br><span class="accent">resolved</span> into one code.</h1>
+          <p class="hero-sub">NOUVURA QR turns your links, contact and gallery into a cinematic portfolio page — and a QR code built to be scanned once and remembered.</p>
+          <div style="margin-top:2.2rem; display:flex; align-items:center; gap:1.2rem; flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="App.go('create')">
+              Create QR Portfolio ${iconSvgPlaceholder("arrow-right", "w-4 h-4")}
+            </button>
+            <span style="font-size:.7rem; text-transform:uppercase; letter-spacing:.15em; color:var(--bone-faint);">No account needed</span>
+          </div>
+
+          <div class="hairline" style="max-width:420px; margin-left:0;"></div>
+
+          <div class="features">
+            <div class="feature-item">
+              ${iconSvgPlaceholder("scan-line", "w-5 h-5")}
+              <p class="title">One scan, full presence</p>
+              <p class="body">Every link, number and platform you use, resolved behind a single QR code.</p>
+            </div>
+            <div class="feature-item">
+              ${iconSvgPlaceholder("images", "w-5 h-5")}
+              <p class="title">A page, not a card</p>
+              <p class="body">Logo, description and gallery arranged automatically into a portfolio built for your category.</p>
+            </div>
+            <div class="feature-item">
+              ${iconSvgPlaceholder("star", "w-5 h-5")}
+              <p class="title">Proof, in real time</p>
+              <p class="body">Visitors rate what they see. The average travels with the page, forever current.</p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="matrix-wrap">
+            <div class="matrix-grid" id="matrix-grid"></div>
+            <div class="matrix-scan"></div>
+          </div>
+          <p style="text-align:center; margin-top:1.5rem; font-family:var(--font-mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.3em; color:var(--bone-faint);">resolving your identity —</p>
+        </div>
+      </div>
+    </div>
+    ${renderFooter()}
+  </main>`;
+}
+
+function buildMatrix(size, seed) {
+  let value = seed;
+  const rand = () => { value = (value * 9301 + 49297) % 233280; return value / 233280; };
+  const cells = [];
+  for (let row = 0; row < size; row++) {
+    for (let col = 0; col < size; col++) {
+      const isCorner = (row < 6 && col < 6) || (row < 6 && col > size - 7) || (row > size - 7 && col < 6);
+      const filled = isCorner
+        ? (row === 0 || col === 0 || row === 5 || col === 5 ||
+           (row > 1 && row < 4 && col > 1 && col < 4) ||
+           (row > 1 && row < 4 && col > size - 5 && col < size - 2) ||
+           (row > size - 5 && row < size - 2 && col > 1 && col < 4))
+        : rand() > 0.58;
+      cells.push(filled);
+    }
+  }
+  return cells;
+}
+
+function mountMatrixHero() {
+  const el = document.getElementById("matrix-grid");
+  if (!el) return;
+  const size = 21;
+  const cells = buildMatrix(size, 42);
+  el.style.gridTemplateColumns = `repeat(${size}, minmax(0, 1fr))`;
+  el.innerHTML = cells.map(() => `<div class="matrix-cell"></div>`).join("");
+  const cellEls = el.querySelectorAll(".matrix-cell");
+  cellEls.forEach((cellEl, i) => {
+    if (cells[i]) {
+      const delay = (i % size) * 12 + Math.floor(i / size) * 12;
+      setTimeout(() => cellEl.classList.add("filled"), delay);
+    }
+  });
+}
+
+// ================= render: create form =================
+function renderCreate() {
+  const f = state.form;
+  const theme = CATEGORY_THEME[f.category] || CATEGORY_THEME.Business;
+
+  const categoryPills = ["Business", "Creative", "Personal"].map((c) => `
+    <button type="button" class="category-pill ${c === f.category ? "active" : ""}" onclick="App.setCategory('${c}')">${c}</button>
+  `).join("");
+
+  const linkRows = f.links.map((link, i) => {
+    const resolvedPlatform = link.platform || detectPlatform(link.url);
+    return `
+    <div class="link-row">
+      <div class="icon-badge">${iconSvgPlaceholder(PLATFORM_ICON[resolvedPlatform] || "globe", "w-4 h-4")}</div>
+      <input type="text" placeholder="https://instagram.com/yourbrand" value="${escapeHtml(link.url)}"
+        oninput="App.updateLink(${i}, 'url', this.value)" />
+      <input type="text" class="platform-input" placeholder="${resolvedPlatform}" value="${escapeHtml(link.platform)}"
+        oninput="App.updateLink(${i}, 'platform', this.value)" />
+      <button type="button" onclick="App.removeLink(${i})" aria-label="Remove link">${iconSvgPlaceholder("trash-2", "w-4 h-4")}</button>
+    </div>`;
+  }).join("");
+
+  const phoneRows = f.additionalPhones.map((p, i) => `
+    <div class="phone-row">
+      <input type="tel" class="input" placeholder="Additional phone" value="${escapeHtml(p)}"
+        oninput="App.updatePhone(${i}, this.value)" />
+      <button type="button" onclick="App.removePhone(${i})">${iconSvgPlaceholder("trash-2", "w-4 h-4")}</button>
+    </div>`).join("");
+
+  const logoPreview = f.logoFile ? URL.createObjectURL(f.logoFile) : null;
+
+  const galleryThumbs = f.imageFiles.map((file, i) => `
+    <div class="gallery-thumb">
+      <img src="${URL.createObjectURL(file)}" alt="Gallery upload ${i + 1}" />
+      <button class="remove-thumb" onclick="App.removeGalleryImage(${i})">${iconSvgPlaceholder("x", "w-3 h-3")}</button>
+    </div>`).join("");
+
+  return `
+  <main class="container-narrow" style="padding-top:3.5rem; padding-bottom:5rem;">
+    <button class="btn-ghost" style="display:inline-flex; align-items:center; gap:.4rem; margin-bottom:2rem;" onclick="App.go('home')">
+      ${iconSvgPlaceholder("arrow-left", "w-3 h-3")} Back
+    </button>
+
+    <p class="eyebrow">New portfolio</p>
+    <h1 style="font-size:1.9rem; margin-bottom:2.5rem;">Build your page</h1>
+
+    <form id="create-form" onsubmit="App.handleSubmit(event)">
+      <div class="field">
+        <label>Category</label>
+        <div class="category-row">${categoryPills}</div>
+      </div>
+
+      <div class="field">
+        <label for="f-title">Title / Name</label>
+        <input id="f-title" class="input" type="text" placeholder="NOUVURA Studio" value="${escapeHtml(f.title)}"
+          oninput="App.setField('title', this.value)" />
+      </div>
+
+      <div class="field">
+        <label for="f-desc">Description</label>
+        <textarea id="f-desc" class="textarea" rows="4" placeholder="What you do, in a few sentences."
+          oninput="App.setField('description', this.value)">${escapeHtml(f.description)}</textarea>
+      </div>
+
+      <div class="upload-grid">
+        <div>
+          <label style="display:block; font-size:.7rem; text-transform:uppercase; letter-spacing:.18em; color:var(--bone-dim); margin-bottom:.75rem;">Logo</label>
+          <input type="file" id="logo-input" accept="image/*" style="display:none" onchange="App.handleLogoChange(event)" />
+          <div class="logo-box" onclick="document.getElementById('logo-input').click()">
+            ${logoPreview ? `<img src="${logoPreview}" alt="Logo preview" />` : `${iconSvgPlaceholder("upload-cloud", "w-6 h-6")}<span>Logo</span>`}
+          </div>
+          ${f.logoFile ? `<button type="button" class="btn-ghost" style="margin-top:.5rem; display:inline-flex; gap:.3rem; align-items:center;" onclick="App.removeLogo()">${iconSvgPlaceholder("x", "w-3 h-3")} Remove</button>` : ""}
+        </div>
+        <div>
+          <label style="display:block; font-size:.7rem; text-transform:uppercase; letter-spacing:.18em; color:var(--bone-dim); margin-bottom:.75rem;">Gallery images</label>
+          <input type="file" id="gallery-input" accept="image/*" multiple style="display:none" onchange="App.handleGalleryChange(event)" />
+          <div class="gallery-wrap">
+            ${galleryThumbs}
+            <div class="gallery-add" onclick="document.getElementById('gallery-input').click()">
+              ${iconSvgPlaceholder("upload-cloud", "w-5 h-5")}<span>Add</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="f-phone">Phone number</label>
+        <input id="f-phone" class="input" type="tel" required placeholder="+213 555 000 000" value="${escapeHtml(f.phone)}"
+          oninput="App.setField('phone', this.value)" />
+        <div style="margin-top:1rem;">
+          ${phoneRows}
+          <button type="button" class="add-link" onclick="App.addPhone()">${iconSvgPlaceholder("plus", "w-3.5 h-3.5")} Add another number</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Links</label>
+        ${linkRows}
+        <button type="button" class="add-link" onclick="App.addLink()">${iconSvgPlaceholder("plus", "w-3.5 h-3.5")} Add another link</button>
+      </div>
+
+      ${state.errorMessage ? `<div class="error-box">${escapeHtml(state.errorMessage)}</div>` : ""}
+
+      <button type="submit" class="btn btn-primary btn-block" ${state.submitting ? "disabled" : ""}>
+        ${state.submitting
+          ? `${iconSvgPlaceholder("loader-2", "w-4 h-4 spin")} Generating portfolio…`
+          : "Generate portfolio & QR"}
+      </button>
+    </form>
+  </main>`;
+}
+
+// ================= render: created (QR reveal) =================
+function renderCreated(id) {
+  const portfolioUrl = `${window.location.origin}${window.location.pathname}#/p/${id}`;
+  return `
+  <main class="center-screen">
+    <div class="fade-in" style="max-width:420px; width:100%;">
+      ${iconSvgPlaceholder("check-circle-2", "w-10 h-10")}
+      <h1 style="font-size:1.6rem; margin-top:1rem;">Portfolio is live</h1>
+      <p style="margin-top:.5rem; font-size:.9rem; color:var(--bone-dim);">Scan, share, or download the code below. It always points to the latest version of this page.</p>
+
+      <div style="margin:2rem 0;">
+        <div class="qr-frame"><canvas id="qr-canvas"></canvas></div>
+        <div style="margin-top:1rem; display:flex; gap:.75rem; justify-content:center;">
+          <button class="btn btn-outline" onclick="App.downloadQr('png','${id}')">${iconSvgPlaceholder("download", "w-3.5 h-3.5")} PNG</button>
+          <button class="btn btn-outline" onclick="App.downloadQr('svg','${id}')">${iconSvgPlaceholder("download", "w-3.5 h-3.5")} SVG</button>
+        </div>
+      </div>
+
+      <div style="border:1px solid var(--void-line); background:rgba(18,18,20,.6); border-radius:8px; padding:.85rem 1rem; font-family:var(--font-mono); font-size:.72rem; color:var(--bone-dim); word-break:break-all;">
+        ${portfolioUrl}
+      </div>
+
+      <div style="margin-top:2rem; display:flex; gap:1rem; justify-content:center;">
+        <button class="btn btn-primary" onclick="App.go('p/${id}')">View portfolio</button>
+        <button class="btn btn-outline" onclick="App.resetAndCreate()">Create another</button>
+      </div>
+    </div>
+  </main>`;
+}
+
+let currentSvgMarkup = "";
+function mountQrCode(id) {
+  const canvas = document.getElementById("qr-canvas");
+  if (!canvas || !window.QRCode) return;
+  const url = `${window.location.origin}${window.location.pathname}#/p/${id}`;
+  const opts = { errorCorrectionLevel: "H", margin: 1, width: 420, color: { dark: "#0b0b0d", light: "#EDEAE3" } };
+  window.QRCode.toCanvas(canvas, url, opts, (err) => { if (err) console.error(err); });
+  window.QRCode.toString(url, { ...opts, type: "svg" }, (err, svg) => {
+    if (!err) currentSvgMarkup = svg;
+  });
+}
+
+// ================= render: portfolio view =================
+function renderPortfolio(id) {
+  const status = state.viewStatus[id] || "loading";
+
+  if (status === "loading") {
+    return `<main class="center-screen">${iconSvgPlaceholder("loader-2", "w-6 h-6 spin")}</main>`;
+  }
+  if (status === "notfound") {
+    return `<main class="center-screen">
+      <h1 style="font-size:1.6rem;">Page not found</h1>
+      <p style="font-size:.85rem; color:var(--bone-dim);">This QR code doesn't resolve to a portfolio. It may have been removed.</p>
+      <button class="btn-ghost" style="color:var(--gilt);" onclick="App.go('home')">Return home</button>
+    </main>`;
+  }
+  if (status === "error") {
+    return `<main class="center-screen">
+      <h1 style="font-size:1.6rem;">Something went wrong</h1>
+      <p style="font-size:.85rem; color:var(--bone-dim);">Couldn't reach the database. Try again shortly.</p>
+    </main>`;
+  }
+
+  const p = state.portfolioCache[id];
+  const theme = CATEGORY_THEME[p.category] || CATEGORY_THEME.Business;
+
+  const heroBadge = p.logoUrl
+    ? `<img src="${p.logoUrl}" alt="${escapeHtml(p.title)} logo" />`
+    : (p.title || "N").charAt(0).toUpperCase();
+
+  const extraPhones = (p.additionalPhones || []).map((ph) => `
+    <a href="tel:${escapeHtml(ph)}" style="font-size:.78rem; color:var(--bone-dim); text-decoration:underline; text-underline-offset:4px;">${escapeHtml(ph)}</a>
+  `).join("");
+
+  const linkCards = (p.links || []).map((link) => {
+    const platform = link.platform || detectPlatform(link.url);
+    return `
+    <a class="link-card" href="${escapeHtml(normalizeUrl(link.url))}" target="_blank" rel="noopener noreferrer">
+      ${iconSvgPlaceholder(PLATFORM_ICON[platform] || "globe", "w-4 h-4")}
+      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(platform)}</span>
+    </a>`;
+  }).join("");
+
+  const galleryImgs = (p.images || []).map((src, i) => `
+    <img src="${src}" alt="${escapeHtml(p.title)} gallery image ${i + 1}" loading="lazy" />
+  `).join("");
+
+  const locked = !!state.ratingLocked[id];
+  const ratingSummary = p.ratingCount > 0
+    ? `${p.ratingAverage.toFixed(1)} average · ${p.ratingCount} rating${p.ratingCount === 1 ? "" : "s"}`
+    : "No ratings yet";
+
+  const starButtons = locked
+    ? `<p style="font-size:.85rem; color:var(--gilt);">Thanks — your rating was recorded.</p>`
+    : `<div class="stars">${[1,2,3,4,5].map((v) => `
+        <button class="star-btn" onclick="App.rate('${id}', ${v})">${iconSvgPlaceholder("star", "w-6 h-6")}</button>
+      `).join("")}</div>`;
+
+  return `
+  <main style="position:relative; padding-bottom:6rem;">
+    <div style="position:absolute; inset-x:0; top:0; height:380px; pointer-events:none;
+      background:radial-gradient(50% 50% at 50% 0%, rgba(201,162,75,.18) 0%, rgba(201,162,75,0) 70%);"></div>
+
+    <div class="container-narrow" style="position:relative; padding-top:4rem;">
+      <button class="btn-ghost" style="display:inline-flex; align-items:center; gap:.3rem; margin-bottom:2.5rem;" onclick="App.go('home')">
+        ${iconSvgPlaceholder("chevron-left", "w-3.5 h-3.5")} Nouvura
+      </button>
+
+      <section class="fade-in" style="text-align:center;">
+        <div class="hero-badge" style="border:1px solid ${theme.ring}; margin-left:auto; margin-right:auto; color:${theme.accent};">${heroBadge}</div>
+        <p class="eyebrow" style="color:${theme.accent};">${theme.tag}</p>
+        <h1 style="font-size:2rem;">${escapeHtml(p.title)}</h1>
+        ${p.description ? `<p style="max-width:420px; margin:1rem auto 0; font-size:.9rem; line-height:1.6; color:var(--bone-dim);">${escapeHtml(p.description)}</p>` : ""}
+
+        <a class="contact-btn" style="border-color:${theme.ring}; color:${theme.accent};" href="tel:${escapeHtml(p.phone)}">
+          ${iconSvgPlaceholder("phone", "w-4 h-4")} ${escapeHtml(p.phone)}
+        </a>
+
+        ${extraPhones ? `<div style="margin-top:.75rem; display:flex; gap:1rem; justify-content:center; flex-wrap:wrap;">${extraPhones}</div>` : ""}
+      </section>
+
+      ${(p.links || []).length ? `
+      <div class="hairline"></div>
+      <section>
+        <p class="eyebrow">Links</p>
+        <div class="links-grid">${linkCards}</div>
+      </section>` : ""}
+
+      ${(p.images || []).length ? `
+      <div class="hairline"></div>
+      <section>
+        <p class="eyebrow">Gallery</p>
+        <div class="gallery-view">${galleryImgs}</div>
+      </section>` : ""}
+
+      <div class="hairline"></div>
+      <section style="text-align:center;">
+        <p class="eyebrow">Rate this page</p>
+        <div style="display:flex; flex-direction:column; align-items:center; gap:.75rem;">
+          ${starButtons}
+          <p style="font-size:.78rem; color:var(--bone-dim);">${ratingSummary}</p>
+        </div>
+      </section>
+    </div>
+  </main>`;
+}
+
+async function ensurePortfolioLoaded(id) {
+  if (state.portfolioCache[id]) { state.viewStatus[id] = "ready"; return; }
+  state.viewStatus[id] = "loading";
+  try {
+    const data = await fetchPortfolio(id);
+    if (!data) { state.viewStatus[id] = "notfound"; }
+    else { state.portfolioCache[id] = data; state.viewStatus[id] = "ready"; }
+  } catch (err) {
+    console.error(err);
+    state.viewStatus[id] = "error";
+  }
+  render();
+}
+
+// ================= main render =================
+function render() {
+  const route = parseRoute();
+  const app = document.getElementById("app");
+
+  if (route.name === "home") {
+    app.innerHTML = renderHome();
+    mountMatrixHero();
+  } else if (route.name === "create") {
+    app.innerHTML = renderCreate();
+  } else if (route.name === "created") {
+    app.innerHTML = renderCreated(route.id);
+    mountQrCode(route.id);
+  } else if (route.name === "portfolio") {
+    app.innerHTML = renderPortfolio(route.id);
+    if (!state.portfolioCache[route.id] && state.viewStatus[route.id] !== "error" && state.viewStatus[route.id] !== "notfound") {
+      ensurePortfolioLoaded(route.id);
+    }
+  }
+
+  if (window.lucide) window.lucide.createIcons();
+}
+
+// ================= App namespace (event handlers) =================
+const App = {
+  go(hash) { navigate(hash); },
+
+  setField(key, value) { state.form[key] = value; }, // no re-render: preserves input focus
+
+  setCategory(cat) { state.form.category = cat; render(); },
+
+  addLink() { state.form.links.push({ url: "", platform: "" }); render(); },
+  removeLink(i) { state.form.links.splice(i, 1); render(); },
+  updateLink(i, field, value) { state.form.links[i][field] = value; },
+
+  addPhone() { state.form.additionalPhones.push(""); render(); },
+  removePhone(i) { state.form.additionalPhones.splice(i, 1); render(); },
+  updatePhone(i, value) { state.form.additionalPhones[i] = value; },
+
+  handleLogoChange(e) { state.form.logoFile = e.target.files?.[0] || null; render(); },
+  removeLogo() { state.form.logoFile = null; render(); },
+
+  handleGalleryChange(e) {
+    const files = Array.from(e.target.files || []);
+    state.form.imageFiles = state.form.imageFiles.concat(files);
+    render();
+  },
+  removeGalleryImage(i) { state.form.imageFiles.splice(i, 1); render(); },
+
+  async handleSubmit(e) {
+    e.preventDefault();
+    state.errorMessage = "";
+
+    if (!state.form.title.trim()) { state.errorMessage = "Give your portfolio a title before continuing."; render(); return; }
+    if (!state.form.phone.trim()) { state.errorMessage = "A primary phone number is required."; render(); return; }
+
+    state.submitting = true; render();
+    try {
+      const id = await createPortfolio(state.form);
+      state.submitting = false;
+      state.createdId = id;
+      navigate(`created/${id}`);
+    } catch (err) {
+      console.error(err);
+      state.submitting = false;
+      state.errorMessage = "The portfolio could not be saved. Check your connection and try again.";
+      render();
+    }
+  },
+
+  resetAndCreate() {
+    state.form = { category: "Business", title: "", description: "", phone: "", additionalPhones: [], links: [{ url: "", platform: "" }], logoFile: null, imageFiles: [] };
+    state.errorMessage = "";
+    navigate("create");
+  },
+
+  downloadQr(type, id) {
+    if (type === "png") {
+      const canvas = document.getElementById("qr-canvas");
+      if (!canvas) return;
+      const link = document.createElement("a");
+      link.download = `nouvura-${id}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } else {
+      if (!currentSvgMarkup) return;
+      const blob = new Blob([currentSvgMarkup], { type: "image/svg+xml" });
+      const link = document.createElement("a");
+      link.download = `nouvura-${id}.svg`;
+      link.href = URL.createObjectURL(blob);
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }
+  },
+
+  async rate(id, value) {
+    if (state.ratingLocked[id]) return;
+    state.ratingLocked[id] = true;
+    render();
+    try {
+      await submitRating(id, value);
+      delete state.portfolioCache[id];
+      await ensurePortfolioLoaded(id);
+    } catch (err) {
+      console.error(err);
+      state.ratingLocked[id] = false;
+      render();
+    }
+  },
+};
+
+window.App = App;
+window.addEventListener("hashchange", render);
+window.addEventListener("DOMContentLoaded", render);
+render();
+</script>
+</body>
+</html>
