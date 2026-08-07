@@ -11,8 +11,12 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800;900&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
-<!-- QR Code generation library (soldair/node-qrcode browser build) -->
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<!-- QR Code generation library (soldair/node-qrcode browser build)
+     If the primary CDN fails to load (blocked network, ad-blocker, offline mirror, etc.)
+     we automatically retry from a second CDN. If both fail, the app falls back to a
+     public QR image API at runtime — see renderQRCode() in the script below. -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"
+        onerror="var s=document.createElement('script');s.src='https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js';document.head.appendChild(s);"></script>
 
 <!-- 🔥 FIREBASE SDKS (compat build — no bundler required) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -152,6 +156,16 @@ input,textarea{ font-family:inherit; }
   transition: transform .35s var(--ease), box-shadow .35s var(--ease);
 }
 .nav-cta:hover{ transform:translateY(-2px); box-shadow:0 10px 30px -8px rgba(230,48,79,.55); }
+
+.db-status{
+  display:inline-flex; align-items:center; gap:.55em; font-size:.72rem; color:var(--text-dim);
+  padding:.5em .9em; border-radius:999px; border:1px solid var(--border); background:rgba(255,255,255,.03);
+}
+.db-status .db-dot{ width:8px; height:8px; border-radius:50%; background:var(--text-faint); flex:none; transition:background .3s var(--ease), box-shadow .3s var(--ease); }
+.db-status.ok .db-dot{ background:#3ecf7e; box-shadow:0 0 8px #3ecf7e; }
+.db-status.off .db-dot{ background:var(--gold); box-shadow:0 0 8px var(--gold); }
+.db-status.err .db-dot{ background:var(--red-glow); box-shadow:0 0 8px var(--red-glow); }
+@media (max-width:640px){ .db-status .db-label{ display:none; } }
 
 /* ---------- Hero ---------- */
 .hero{
@@ -453,7 +467,12 @@ body.viewer-mode #result{ padding-top:140px; }
 <!-- ============ NAV ============ -->
 <nav class="nav">
   <div class="brand"><span>NOUVURA</span><span class="dot">•</span><span>QR</span></div>
-  <button class="nav-cta" id="navCta" type="button">Build my page</button>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <span class="db-status" id="dbStatus" title="Checking database connection…">
+      <span class="db-dot"></span><span class="db-label">Checking database…</span>
+    </span>
+    <button class="nav-cta" id="navCta" type="button">Build my page</button>
+  </div>
 </nav>
 
 <!-- ============ HERO ============ -->
@@ -715,21 +734,61 @@ const firebaseConfig = {
 
 let fbApp = null, db = null, storage = null, firebaseReady = false;
 
+/* ---------- DB status badge (visible connection indicator) ---------- */
+function updateDbStatus(mode, detail){
+  // mode: 'checking' | 'ok' | 'off' | 'err'
+  const node = document.getElementById('dbStatus');
+  if (!node) return;
+  node.classList.remove('ok','off','err');
+  const label = node.querySelector('.db-label');
+  if (mode === 'ok'){
+    node.classList.add('ok'); label.textContent = 'Database connected';
+    node.title = 'Firestore is reachable — portfolios and ratings save to the cloud.';
+  } else if (mode === 'off'){
+    node.classList.add('off'); label.textContent = 'Local mode only';
+    node.title = 'Working offline / from this device only. ' + (detail || 'Firebase is not reachable — data is saved in this browser instead.');
+  } else if (mode === 'err'){
+    node.classList.add('err'); label.textContent = 'Database blocked';
+    node.title = 'Firebase responded but access was denied. ' + (detail || 'Check Firestore security rules in the Firebase console.');
+  } else {
+    label.textContent = 'Checking database…';
+  }
+}
+
 function initFirebase(){
   try{
-    if (typeof firebase === 'undefined') throw new Error('Firebase SDK not loaded');
+    if (typeof firebase === 'undefined') throw new Error('Firebase SDK script did not load (network/CDN blocked).');
     fbApp = firebase.initializeApp(firebaseConfig);
     db = firebase.firestore();
     storage = firebase.storage();
     try{ firebase.analytics(); }catch(e){ /* analytics can fail offline/blocked — non-critical */ }
     firebaseReady = true;
-    console.info('[NOUVURA QR] Firebase connected.');
+    console.info('[NOUVURA QR] Firebase SDK initialized — verifying access…');
   }catch(err){
     firebaseReady = false;
     console.warn('[NOUVURA QR] Firebase unavailable, falling back to local storage mode.', err);
+    updateDbStatus('off', err.message);
   }
 }
 initFirebase();
+
+/* Actively verify the app can really reach Firestore (SDK init succeeding is not
+   enough — a locked-down ruleset or network block will still fail silently unless
+   we explicitly test it). This is what lights up the "Database connected" badge. */
+async function verifyFirebaseConnection(){
+  if (!firebaseReady){ updateDbStatus('off'); return; }
+  try{
+    await db.collection('portfolios').doc('__connection_check__').get();
+    updateDbStatus('ok');
+    console.info('[NOUVURA QR] Firestore reachable — database connected.');
+  }catch(err){
+    console.error('[NOUVURA QR] Firestore is reachable but blocked by security rules:', err.code || err.message,
+      '\nOpen the Firebase console → Firestore Database → Rules, and allow read/write to the "portfolios" collection ' +
+      '(see the suggested rules in the comment above firebaseConfig in this file).');
+    updateDbStatus('err', err.code || err.message);
+  }
+}
+verifyFirebaseConnection();
 
 /* Firestore: save a portfolio document, returns the slug */
 async function savePortfolioToFirebase(slug, data){
@@ -739,9 +798,11 @@ async function savePortfolioToFirebase(slug, data){
       ...data,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
+    updateDbStatus('ok');
     return true;
   }catch(err){
-    console.warn('[NOUVURA QR] Could not save to Firestore:', err);
+    console.error('[NOUVURA QR] Could not save to Firestore:', err.code || err.message);
+    updateDbStatus('err', err.code || err.message);
     return false;
   }
 }
@@ -1117,17 +1178,7 @@ async function renderResult(data, slug){
   const portfolioUrl = `${window.location.origin}${window.location.pathname}?id=${slug}`;
   $('#portfolioUrl').textContent = portfolioUrl;
 
-  const canvas = $('#qrCanvas');
-  try{
-    await QRCode.toCanvas(canvas, portfolioUrl, {
-      width: 400,
-      margin: 1,
-      color: { dark: '#0c1128', light: '#ffffff' }
-    });
-  }catch(err){
-    console.warn('[NOUVURA QR] QR generation failed.', err);
-    showToast('Could not generate QR code.');
-  }
+  await renderQRCode(portfolioUrl);
 
   // ratings
   state.ratingSum = data.ratingSum || 0;
@@ -1136,14 +1187,81 @@ async function renderResult(data, slug){
   buildStars();
 }
 
-/* ---------- Download QR as PNG ---------- */
-$('#downloadQrBtn').addEventListener('click', () => {
+/* ---------- QR rendering with automatic fallback ----------
+   1st choice: the qrcode.js library drawn on <canvas> — fully offline once loaded,
+   nothing leaves the browser.
+   Fallback: if the library script never loaded (CDN blocked) or throws, we swap in
+   an <img> pointed at a public QR image API so a QR code always appears. */
+async function renderQRCode(text){
   const canvas = $('#qrCanvas');
+  const frame = $('#qrFrame');
+  let fallbackImg = frame.querySelector('img.qr-fallback-img');
+
+  if (typeof QRCode !== 'undefined' && QRCode.toCanvas){
+    try{
+      await QRCode.toCanvas(canvas, text, {
+        width: 400,
+        margin: 1,
+        color: { dark: '#0c1128', light: '#ffffff' }
+      });
+      canvas.style.display = 'block';
+      if (fallbackImg) fallbackImg.style.display = 'none';
+      return;
+    }catch(err){
+      console.warn('[NOUVURA QR] QR library failed to render, switching to fallback image.', err);
+    }
+  } else {
+    console.warn('[NOUVURA QR] QR library was not available (likely blocked CDN), switching to fallback image.');
+  }
+
+  // ---- Fallback path: public QR image API ----
+  canvas.style.display = 'none';
+  if (!fallbackImg){
+    fallbackImg = document.createElement('img');
+    fallbackImg.className = 'qr-fallback-img';
+    fallbackImg.alt = 'QR code linking to this portfolio';
+    fallbackImg.style.cssText = 'width:100%;height:100%;display:block;border-radius:6px;';
+    frame.insertBefore(fallbackImg, frame.firstChild);
+  }
+  fallbackImg.style.display = 'block';
+  fallbackImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=8&data=${encodeURIComponent(text)}`;
+  await new Promise((resolve) => {
+    fallbackImg.onload = resolve;
+    fallbackImg.onerror = () => { showToast('Could not generate a QR code — check your internet connection.'); resolve(); };
+  });
+}
+
+/* ---------- Download QR as PNG ---------- */
+$('#downloadQrBtn').addEventListener('click', async () => {
+  const canvas = $('#qrCanvas');
+  const fallbackImg = $('#qrFrame').querySelector('img.qr-fallback-img');
   const link = document.createElement('a');
   link.download = `nouvura-qr-${state.slug || 'portfolio'}.png`;
-  link.href = canvas.toDataURL('image/png');
-  link.click();
-  showToast('QR code downloaded.');
+
+  if (canvas.style.display !== 'none'){
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    showToast('QR code downloaded.');
+    return;
+  }
+
+  if (fallbackImg && fallbackImg.src){
+    try{
+      const res = await fetch(fallbackImg.src, { mode:'cors' });
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      link.href = blobUrl;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+      showToast('QR code downloaded.');
+    }catch(err){
+      // last resort — open the image so the user can save it manually
+      window.open(fallbackImg.src, '_blank');
+      showToast('Opened the QR code in a new tab — save it from there.');
+    }
+  } else {
+    showToast('QR code is not ready yet.');
+  }
 });
 
 /* ---------- Copy portfolio link ---------- */
